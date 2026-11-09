@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Prompter AP">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<title>Prompter AgroPlace</title>
+<style>
+  :root { --verde:#1FA95B; --laranja:#F39200; --panel:42vh; --op:.55; --fs:30px; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; background:#000; color:#fff; overflow:hidden;
+    font-family:"Avenir Next", Avenir, -apple-system, system-ui, sans-serif; -webkit-user-select:none; user-select:none; }
+  video#cam { position:fixed; inset:0; width:100%; height:100%; object-fit:cover; background:#111; }
+  video#cam.mirror { transform:scaleX(-1); }
+
+  /* Painel do texto, logo abaixo da câmera frontal */
+  #panel { position:fixed; left:0; right:0; top:0; height:calc(env(safe-area-inset-top) + var(--panel));
+    background:rgba(0,0,0,var(--op)); padding-top:env(safe-area-inset-top); overflow:hidden; }
+  #scroller { height:100%; overflow-y:scroll; scrollbar-width:none; padding:22% 6vw 120%;
+    -webkit-overflow-scrolling:touch; }
+  #scroller::-webkit-scrollbar { display:none; }
+  #text { font-size:var(--fs); line-height:1.4; font-weight:700; text-shadow:0 2px 6px rgba(0,0,0,.8); }
+  #text.flip { transform:scaleX(-1); }
+  #text .bloco { display:block; color:var(--laranja); font-size:.45em; letter-spacing:.08em; text-transform:uppercase; margin:1.2em 0 .2em; }
+  #text p { margin:0 0 .5em; }
+  #line { position:absolute; left:0; width:14px; top:calc(env(safe-area-inset-top) + var(--panel) * .22);
+    border-top:2px solid rgba(31,169,91,.85); pointer-events:none; }
+  #line::before { content:"▶"; position:absolute; left:4px; top:-.72em; color:var(--verde); font-size:16px; }
+
+  /* Barra inferior */
+  #bottom { position:fixed; left:0; right:0; bottom:0; padding:14px 18px calc(18px + env(safe-area-inset-bottom));
+    display:flex; align-items:center; justify-content:space-between;
+    background:linear-gradient(transparent, rgba(0,0,0,.65)); }
+  .round { width:54px; height:54px; border-radius:50%; border:0; background:rgba(40,40,40,.85); color:#fff;
+    font-size:22px; display:flex; align-items:center; justify-content:center; }
+  #rec { width:78px; height:78px; border-radius:50%; border:5px solid #fff; background:transparent; padding:0;
+    display:flex; align-items:center; justify-content:center; }
+  #rec span { width:58px; height:58px; border-radius:50%; background:#e53935; transition:all .2s; }
+  #rec.on span { width:30px; height:30px; border-radius:7px; }
+  #timer { position:fixed; left:50%; transform:translateX(-50%); bottom:calc(112px + env(safe-area-inset-bottom));
+    background:rgba(229,57,53,.9); padding:4px 12px; border-radius:20px; font-weight:700; font-size:15px; display:none; }
+  #pausedTag { position:fixed; right:12px; top:calc(env(safe-area-inset-top) + var(--panel) - 34px);
+    font-size:12px; background:var(--laranja); padding:3px 8px; border-radius:10px; display:none; }
+
+  #count { position:fixed; inset:0; display:none; align-items:center; justify-content:center; font-size:42vw;
+    font-weight:800; color:var(--laranja); text-shadow:0 4px 20px rgba(0,0,0,.6); pointer-events:none; }
+
+  /* Folhas (ajustes, editor, resultado, início) */
+  .sheet { position:fixed; inset:0; background:rgba(0,0,0,.92); display:none; flex-direction:column;
+    padding:calc(16px + env(safe-area-inset-top)) 18px calc(16px + env(safe-area-inset-bottom)); gap:14px; z-index:10; overflow-y:auto; }
+  .sheet h2 { margin:0; font-size:20px; }
+  .sheet label { display:flex; flex-direction:column; gap:6px; font-size:14px; color:#ccc; }
+  .sheet input[type=range] { width:100%; accent-color:var(--verde); }
+  .sheet .chk { flex-direction:row; align-items:center; gap:10px; }
+  .sheet .chk input { width:22px; height:22px; accent-color:var(--verde); }
+  .btn { font:inherit; font-weight:700; font-size:16px; border:0; border-radius:12px; padding:14px; background:#2a2a2a; color:#fff; }
+  .btn.main { background:var(--verde); }
+  .btn.warn { background:#5a1f1f; }
+  .row { display:flex; gap:10px; } .row .btn { flex:1; }
+  textarea { flex:1; min-height:50vh; background:#000; color:#fff; border:1px solid #333; border-radius:12px; padding:12px;
+    font-size:16px; line-height:1.45; font-family:inherit; -webkit-user-select:text; user-select:text; }
+  #result video { width:100%; max-height:58vh; background:#111; border-radius:12px; }
+  small { color:#999; line-height:1.4; }
+  #start { display:flex; align-items:center; justify-content:center; text-align:center; }
+  #start img { width:96px; height:96px; border-radius:22px; margin:0 auto; }
+</style>
+</head>
+<body>
+<video id="cam" playsinline autoplay muted></video>
+
+<div id="panel"><div id="scroller"><div id="text"></div></div></div>
+<div id="line"></div>
+<div id="pausedTag">pausado – toque para seguir</div>
+<div id="timer">● 00:00</div>
+<div id="count">3</div>
+
+<div id="bottom">
+  <button class="round" id="btnEdit" aria-label="Editar texto">✎</button>
+  <button class="round" id="btnSettings" aria-label="Ajustes">⚙︎</button>
+  <button id="rec" aria-label="Gravar"><span></span></button>
+  <button class="round" id="btnTop" aria-label="Voltar ao início">⟲</button>
+  <button class="round" id="btnFlip" aria-label="Trocar câmera">⇄</button>
+</div>
+
+<!-- Tela inicial -->
+<div class="sheet" id="start" style="display:flex">
+  <img src="icon-192.png" alt="">
+  <h2>Prompter AgroPlace</h2>
+  <small>O texto rola logo abaixo da câmera frontal enquanto você grava.<br>Olhe para a lente e leia a linha verde.</small>
+  <button class="btn main" id="btnStart">Ativar câmera e microfone</button>
+  <small id="startMsg"></small>
+</div>
+
+<!-- Ajustes -->
+<div class="sheet" id="settings">
+  <h2>Ajustes</h2>
+  <label>Velocidade de rolagem <input id="speed" type="range" min="8" max="120" value="35"></label>
+  <label>Tamanho da letra <input id="size" type="range" min="18" max="60" value="30"></label>
+  <label>Altura do painel de texto <input id="height" type="range" min="25" max="70" value="42"></label>
+  <label>Escurecer fundo do texto <input id="opacity" type="range" min="0" max="90" value="55"></label>
+  <label class="chk"><input type="checkbox" id="autoScroll" checked> Rolar o texto automaticamente ao gravar</label>
+  <label class="chk"><input type="checkbox" id="countdown" checked> Contagem de 3 s antes de gravar</label>
+  <label class="chk"><input type="checkbox" id="flipText"> Espelhar o texto (só para vidro de teleprompter)</label>
+  <label>Qualidade
+    <select id="quality" class="btn">
+      <option value="1080">1080p (recomendado)</option>
+      <option value="720">720p (arquivo menor)</option>
+    </select>
+  </label>
+  <small>Dica: com o texto parado, deslize o painel para ensaiar. Durante a gravação, toque no texto para pausar a rolagem.</small>
+  <button class="btn main" id="closeSettings">Pronto</button>
+</div>
+
+<!-- Editor -->
+<div class="sheet" id="editor">
+  <h2>Roteiro</h2>
+  <small>Linha começando com <b>#</b> vira título de bloco. Linha em branco separa parágrafos.</small>
+  <textarea id="src" spellcheck="false"></textarea>
+  <div class="row">
+    <button class="btn warn" id="reset">Restaurar original</button>
+    <button class="btn" id="cancelEdit">Cancelar</button>
+    <button class="btn main" id="saveEdit">Salvar</button>
+  </div>
+</div>
+
+<!-- Resultado -->
+<div class="sheet" id="result">
+  <h2>Gravação pronta</h2>
+  <video id="playback" playsinline controls></video>
+  <small id="resInfo"></small>
+  <button class="btn main" id="btnSave">Salvar no Fotos / Compartilhar</button>
+  <a class="btn" id="btnDownload" style="text-align:center;text-decoration:none;display:none">Baixar arquivo</a>
+  <div class="row">
+    <button class="btn warn" id="btnDiscard">Descartar</button>
+    <button class="btn" id="btnAgain">Gravar de novo</button>
+  </div>
+</div>
+
+<script>
+const ORIGINAL = `# Gancho
+Ninguém cresce sozinho no campo. E quem entende isso colhe mais conhecimento, mais parceria e mais resultado.
+
+# Introdução
+Olá, meu nome é [NOME] e eu sou [CARGO] da empresa AgroPlace.
+
+# Quem é a AgroPlace
+A AgroPlace é uma indústria de fertilizantes líquidos especiais, com foco em alta tecnologia para a nutrição de plantas.
+
+Mas a gente vai além do produto: entregamos conhecimento agronômico pra ajudar o produtor a decidir melhor, talhão por talhão.
+
+# Scan Solo e Scan Folha
+Sabe aquele laudo de análise de solo cheio de número que acaba esquecido na gaveta?
+
+Com o Scan Solo e o Scan Folha, nossos aplicativos, a gente transforma esses números em informação prática: o que está faltando, o que está sobrando e onde o investimento em nutrição traz mais retorno.
+
+# Go Up
+E pra quem quer ir mais fundo, temos o Go Up: treinamentos agronômicos, um dia por módulo, pra consultores, revendas e produtores.
+
+# Por que ser Amigo do GAT
+E por que ser Amigo do GAT? Porque, como eu disse no começo, é junto que a gente vai mais longe.
+
+O GAT reúne produtores que trocam experiência e constroem conhecimento juntos.
+
+E é exatamente isso que a AgroPlace acredita: decisão baseada em dado, resultado testado e conhecimento que circula.
+
+Estar junto do GAT é estar perto de quem faz a agricultura acontecer de verdade.
+
+# Finalização
+A AgroPlace é uma empresa Amiga do GAT e juntos estamos Fortalecendo a Cooperação e Gerando Conhecimento.`;
+
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('apt_' + k); return v === null ? d : v; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('apt_' + k, v); } catch (e) {} }
+};
+const root = document.documentElement.style;
+const cam = $('cam'), scroller = $('scroller'), text = $('text');
+
+let script = store.get('script', ORIGINAL);
+let facing = store.get('facing', 'user');
+let stream = null, recorder = null, chunks = [], recBlob = null, recUrl = null;
+let recording = false, scrolling = false, last = 0, carry = 0, t0 = 0, timerIv = null, wake = null;
+
+/* ---------- Texto ---------- */
+function esc(s) { return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+function render() {
+  text.innerHTML = script.split('\n').map(l => l.trim()).filter(Boolean).map(t =>
+    t.startsWith('#') ? '<span class="bloco">' + esc(t.replace(/^#+\s*/, '')) + '</span>' : '<p>' + esc(t) + '</p>'
+  ).join('');
+}
+
+/* ---------- Ajustes ---------- */
+const settingIds = ['speed', 'size', 'height', 'opacity', 'quality'];
+const checkIds = ['autoScroll', 'countdown', 'flipText'];
+function loadSettings() {
+  settingIds.forEach(id => { $(id).value = store.get(id, $(id).value); });
+  checkIds.forEach(id => { $(id).checked = store.get(id, $(id).checked ? '1' : '0') === '1'; });
+  applySettings();
+}
+function applySettings() {
+  root.setProperty('--fs', $('size').value + 'px');
+  root.setProperty('--panel', $('height').value + 'vh');
+  root.setProperty('--op', $('opacity').value / 100);
+  text.classList.toggle('flip', $('flipText').checked);
+  cam.classList.toggle('mirror', facing === 'user');
+}
+settingIds.forEach(id => $(id).addEventListener('input', () => { store.set(id, $(id).value); applySettings(); }));
+checkIds.forEach(id => $(id).addEventListener('change', () => { store.set(id, $(id).checked ? '1' : '0'); applySettings(); }));
+$('quality').addEventListener('change', () => { if (!recording) startCamera(); });
+
+/* ---------- Câmera ---------- */
+async function startCamera() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  const q = +$('quality').value;
+  const constraints = {
+    video: { facingMode: facing, width: { ideal: q }, height: { ideal: Math.round(q * 16 / 9) },
+             aspectRatio: { ideal: 9 / 16 }, frameRate: { ideal: 30 } },
+    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+  };
+  try {
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
+  } catch (e) {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing }, audio: true });
+  }
+  cam.srcObject = stream;
+  try { await cam.play(); } catch (e) {}
+  applySettings();
+}
+$('btnStart').onclick = async () => {
+  try {
+    await startCamera();
+    $('start').style.display = 'none';
+  } catch (e) {
+    $('startMsg').textContent = 'Não consegui acessar a câmera. No iPhone: Ajustes → Safari → Câmera e Microfone → Permitir. Depois toque de novo.';
+  }
+};
+$('btnFlip').onclick = async () => {
+  if (recording) return;
+  facing = facing === 'user' ? 'environment' : 'user';
+  store.set('facing', facing);
+  try { await startCamera(); } catch (e) {}
+};
+
+/* ---------- Rolagem ---------- */
+function tick(t) {
+  if (!scrolling) return;
+  if (last) {
+    carry += $('speed').value * (t - last) / 1000;
+    const px = Math.floor(carry);
+    if (px >= 1) { scroller.scrollTop += px; carry -= px; }
+  }
+  last = t;
+  requestAnimationFrame(tick);
+}
+function startScroll() { if (scrolling) return; scrolling = true; last = 0; carry = 0; $('pausedTag').style.display = 'none'; requestAnimationFrame(tick); }
+function pauseScroll() { scrolling = false; if (recording) $('pausedTag').style.display = 'block'; }
+scroller.addEventListener('click', () => { if (!recording) return; scrolling ? pauseScroll() : startScroll(); });
+$('btnTop').onclick = () => { scroller.scrollTop = 0; };
+
+/* ---------- Gravação ---------- */
+function pickMime() {
+  const opts = ['video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
+  if (!window.MediaRecorder) return null;
+  return opts.find(m => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m)) || '';
+}
+async function keepAwake() { try { if ('wakeLock' in navigator) wake = await navigator.wakeLock.request('screen'); } catch (e) {} }
+function releaseAwake() { try { wake && wake.release(); } catch (e) {} wake = null; }
+
+function countdown() {
+  return new Promise(res => {
+    if (!$('countdown').checked) return res();
+    const c = $('count'); let n = 3; c.textContent = n; c.style.display = 'flex';
+    const iv = setInterval(() => { n--; if (n > 0) c.textContent = n; else { clearInterval(iv); c.style.display = 'none'; res(); } }, 1000);
+  });
+}
+async function startRec() {
+  if (!stream) return;
+  const mime = pickMime();
+  if (mime === null) { alertBox('Este navegador não grava vídeo. Atualize o iOS.'); return; }
+  scroller.scrollTop = 0;
+  $('rec').classList.add('on'); recording = true;
+  keepAwake();
+  await countdown();
+  if (!recording) return;
+  chunks = [];
+  const q = +$('quality').value;
+  try {
+    recorder = new MediaRecorder(stream, Object.assign(mime ? { mimeType: mime } : {}, { videoBitsPerSecond: q >= 1080 ? 10000000 : 5000000 }));
+  } catch (e) { recorder = new MediaRecorder(stream); }
+  recorder.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+  recorder.onstop = showResult;
+  recorder.start(1000);
+  t0 = Date.now();
+  $('timer').style.display = 'block'; updateTimer(); timerIv = setInterval(updateTimer, 500);
+  if ($('autoScroll').checked) startScroll();
+}
+function stopRec() {
+  recording = false; scrolling = false;
+  $('rec').classList.remove('on'); $('timer').style.display = 'none'; $('pausedTag').style.display = 'none';
+  $('count').style.display = 'none';
+  clearInterval(timerIv); releaseAwake();
+  if (recorder && recorder.state !== 'inactive') recorder.stop();
+}
+function updateTimer() {
+  const s = Math.floor((Date.now() - t0) / 1000);
+  $('timer').textContent = '● ' + String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+}
+$('rec').onclick = () => recording ? stopRec() : startRec();
+
+function fileName() {
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  const ext = (recBlob.type || '').includes('mp4') ? 'mp4' : 'webm';
+  return `agroplace_${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${ext}`;
+}
+function showResult() {
+  recBlob = new Blob(chunks, { type: (recorder && recorder.mimeType) || 'video/mp4' });
+  if (recUrl) URL.revokeObjectURL(recUrl);
+  recUrl = URL.createObjectURL(recBlob);
+  $('playback').src = recUrl;
+  const s = Math.round((Date.now() - t0) / 1000);
+  $('resInfo').textContent = `${s} s · ${(recBlob.size / 1048576).toFixed(1)} MB · ${recBlob.type || 'vídeo'}`;
+  const a = $('btnDownload'); a.href = recUrl; a.download = fileName();
+  a.style.display = navigator.canShare ? 'none' : 'block';
+  $('result').style.display = 'flex';
+}
+$('btnSave').onclick = async () => {
+  const file = new File([recBlob], fileName(), { type: recBlob.type || 'video/mp4' });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file] });   // no iPhone, escolha "Salvar Vídeo"
+      return;
+    }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
+  $('btnDownload').style.display = 'block'; $('btnDownload').click();
+};
+function closeResult() { $('result').style.display = 'none'; $('playback').pause(); }
+$('btnDiscard').onclick = () => { closeResult(); recBlob = null; };
+$('btnAgain').onclick = () => { closeResult(); scroller.scrollTop = 0; };
+
+/* ---------- Folhas ---------- */
+function alertBox(msg) { $('startMsg').textContent = msg; $('start').style.display = 'flex'; }
+$('btnSettings').onclick = () => { if (!recording) $('settings').style.display = 'flex'; };
+$('closeSettings').onclick = () => $('settings').style.display = 'none';
+$('btnEdit').onclick = () => { if (recording) return; $('src').value = script; $('editor').style.display = 'flex'; };
+$('cancelEdit').onclick = () => $('editor').style.display = 'none';
+$('reset').onclick = () => { $('src').value = ORIGINAL; };
+$('saveEdit').onclick = () => { script = $('src').value; store.set('script', script); render(); scroller.scrollTop = 0; $('editor').style.display = 'none'; };
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && recording) stopRec();
+});
+
+render(); loadSettings();
+if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(() => {}); }
+</script>
+</body>
+</html>
